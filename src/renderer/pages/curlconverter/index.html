@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      rel="preload"
+      href="./tree-sitter.wasm"
+      type="application/wasm"
+      as="fetch"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="./tree-sitter-bash.wasm"
+      type="application/wasm"
+      as="fetch"
+      crossorigin
+    />
+    <title>Convert curl commands to code</title>
+    <style>
+      textarea {
+        display: block;
+        box-sizing: border-box;
+        width: 100%;
+        padding: 4px 12px;
+        background-color: transparent;
+        border-radius: 6px;
+        border-color: #d9d9d9;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 22px;
+        color: rgba(0, 0, 0, 0.88);
+        outline: none;
+        resize: vertical;
+      }
+      textarea:focus {
+        border-color: #1677ff;
+        box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1);
+      }
+      #editor {
+        margin-bottom: 20px;
+      }
+      .tips {
+        margin-top: 4px;
+        font-size: 12px;
+        text-align: right;
+        color: rgba(0, 0, 0, 0.45);
+      }
+      .navbar {
+        padding-inline: 8px;
+      }
+      .navbar a {
+        box-sizing: border-box;
+        float: left;
+        display: block;
+        color: rgba(0, 0, 0, 0.88);
+        font-size: 14px;
+        text-align: center;
+        min-width: 60px;
+        padding: 12px;
+        text-decoration: none;
+        border-bottom: 2px solid transparent;
+      }
+      .navbar a.selected {
+        color: #1677ff;
+        border-bottom-color: #1677ff;
+      }
+      .dropdown {
+        position: relative;
+        float: left;
+        height: 46px;
+      }
+      .dropdown .dropbtn {
+        box-sizing: border-box;
+        float: left;
+        display: block;
+        color: rgba(0, 0, 0, 0.88);
+        font-size: 14px;
+        text-align: center;
+        width: auto;
+        min-width: 60px;
+        background-color: transparent;
+        border: 0;
+        outline: none;
+        padding: 12px 12px;
+        text-decoration: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+      }
+
+      .dropdown .dropbtn.selected {
+        color: #1677ff;
+        border-bottom-color: #1677ff;
+      }
+
+      .navbar a:hover,
+      .dropdown:hover .dropbtn {
+        border-bottom-color: #1677ff;
+      }
+      .dropdown-content {
+        display: none;
+        position: absolute;
+        top: 46px;
+        background-color: #fff;
+        min-width: 160px;
+        box-shadow:
+          0 6px 16px 0 rgba(0, 0, 0, 0.08),
+          0 3px 6px -4px rgba(0, 0, 0, 0.12),
+          0 9px 28px 8px rgba(0, 0, 0, 0.05);
+        border-radius: 6px;
+        padding: 2px;
+        z-index: 1;
+      }
+      .dropdown-content a {
+        display: block;
+        float: none;
+        color: rgba(0, 0, 0, 0.88);
+        padding: 12px;
+        text-decoration: none;
+        text-align: left;
+        border-radius: 6px;
+      }
+      .dropdown-content a:hover {
+        background-color: rgba(0, 0, 0, 0.06);
+        border-bottom-color: transparent;
+      }
+      .dropdown-content a.selected {
+        color: #1677ff;
+        background-color: #e6f4ff;
+        border-bottom-color: transparent;
+      }
+      .dropdown:hover .dropdown-content {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="padding: 24px">
+      <textarea
+        id="editor"
+        placeholder="请输入curl格式的内容"
+        rows="6"
+        autofocus
+      ></textarea>
+      <div id="navbar" class="navbar"></div>
+      <textarea id="preview" rows="12" readonly></textarea>
+      <div class="tips">双击文本即可复制</div>
+    </div>
+
+    <script src="./main.js"></script>
+    <script>
+      const MAX_COPY_TIP_SHOW_TIME = 5;
+      let timer = 0;
+
+      const menus = [
+        {
+          label: 'Python',
+          children: [
+            { label: 'Requests', key: 'Python' },
+            { label: 'http.client', key: 'PythonHttp' },
+          ],
+        },
+        {
+          label: 'Node.js',
+          children: [
+            { label: 'http', key: 'NodeHttp' },
+            { label: 'request', key: 'NodeRequest' },
+            { label: 'node-fetch', key: 'NodeFetch' },
+            { label: 'Axios', key: 'NodeAxios' },
+            { label: 'SuperAgent', key: 'NodeSuperAgent' },
+            { label: 'Got', key: 'NodeGot' },
+            { label: 'Ky', key: 'NodeKy' },
+          ],
+        },
+        {
+          label: 'JavaScript',
+          children: [
+            { label: 'fetch', key: 'JavaScript' },
+            { label: 'jQuery', key: 'JavaScriptJquery' },
+            { label: 'XHR', key: 'JavaScriptXHR' },
+          ],
+        },
+        {
+          label: 'Java',
+          children: [
+            { label: 'HttpClient', key: 'Java' },
+            { label: 'HttpURLConnection', key: 'JavaHttpUrlConnection' },
+            { label: 'jsoup', key: 'JavaJsoup' },
+            { label: 'OkHttp', key: 'JavaOkHttp' },
+          ],
+        },
+        { label: 'C', key: 'C' },
+        { label: 'Go', key: 'Go' },
+        { label: 'PHP', key: 'Php' },
+        { label: 'Lua', key: 'Lua' },
+        { label: 'Wget', key: 'Wget' },
+        { label: 'JSON', key: 'JsonString' },
+      ];
+
+      function renderNavbar() {
+        const navbar = document.getElementById('navbar');
+        const navbarFragment = document.createDocumentFragment();
+        for (let i = 0; i < menus.length; i++) {
+          if (menus[i].children) {
+            const dropdown = document.createElement('div');
+            const dropbtn = document.createElement('button');
+            const content = document.createElement('div');
+            dropdown.className = 'dropdown';
+            dropbtn.className = 'dropbtn';
+            dropbtn.innerHTML =
+              menus[i].label + "<i class='fa fa-caret-down'></i>";
+            content.className = 'dropdown-content';
+            for (let j = 0; j < menus[i].children.length; j++) {
+              const it = menus[i].children[j];
+              const li = document.createElement('a');
+              li.setAttribute('href', 'javascript:void(0);');
+              li.setAttribute('data-id', it.key);
+              li.textContent = it.label;
+              content.appendChild(li);
+            }
+            dropdown.appendChild(dropbtn);
+            dropdown.appendChild(content);
+            navbarFragment.appendChild(dropdown);
+          } else {
+            const li = document.createElement('a');
+            li.setAttribute('href', 'javascript:void(0);');
+            li.setAttribute('data-id', menus[i].key);
+            li.textContent = menus[i].label;
+            navbarFragment.appendChild(li);
+          }
+        }
+        navbar.appendChild(navbarFragment);
+      }
+
+      function selectedNavbar(lang) {
+        const selectedDropdowns = document.querySelectorAll(
+          '#navbar .dropbtn.selected',
+        );
+        const selectedItems = document.querySelectorAll('#navbar a.selected');
+        for (let i = 0; i < selectedDropdowns.length; i++) {
+          selectedDropdowns[i].className = 'dropbtn';
+        }
+        for (let i = 0; i < selectedItems.length; i++) {
+          selectedItems[i].className = '';
+        }
+
+        const navbar = document.getElementById('navbar');
+        navbar.setAttribute('data-id', lang);
+        const item = navbar.querySelector('a[data-id=' + lang + ']');
+        item.className = 'selected';
+        if (item.parentElement.id === 'navbar') return;
+
+        item.parentElement.previousSibling.className = 'dropbtn selected';
+      }
+
+      function convert(lang) {
+        const editor = document.getElementById('editor');
+        if (!editor.value.trim()) return;
+
+        preview.value = '';
+        try {
+          const code = curlconverter['to' + lang](editor.value);
+          const preview = document.getElementById('preview');
+          preview.value = code;
+        } catch {
+          preview.value = '不符合curl格式，请重新输入！';
+        }
+      }
+
+      function updateCopyStatus(text) {
+        const tips = document.querySelector('.tips');
+        tips.innerHTML = text || '双击文本即可复制';
+      }
+
+      function registerEvent() {
+        document.querySelectorAll('#navbar a').forEach((item) => {
+          item.addEventListener('click', () => {
+            const dataId = item.getAttribute('data-id');
+            selectedNavbar(dataId);
+            convert(dataId);
+            updateCopyStatus()
+          });
+        });
+
+        document.getElementById('editor').addEventListener('change', (e) => {
+          const navbar = document.getElementById('navbar');
+          convert(navbar.getAttribute('data-id'));
+          updateCopyStatus()
+        });
+
+        document.getElementById('preview').addEventListener('dblclick', (e) => {
+          if (!e.target.value.trim()) return;
+
+          navigator.clipboard.writeText(e.target.value).then(() => {
+            updateCopyStatus('复制成功！');
+          })
+        })
+      }
+
+      renderNavbar();
+      selectedNavbar('Python');
+      updateCopyStatus();
+      registerEvent();
+    </script>
+  </body>
+</html>
