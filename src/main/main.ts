@@ -147,6 +147,12 @@ app
           createWindow('/curlTransform');
         },
       },
+      {
+        label: "JS格式化",
+        click: () => {
+          createWindow('/beautifier');
+        }
+      },
       { type: 'separator' },
       { label: '显示 / 隐藏', type: 'radio' },
       { label: '设置', type: 'radio' },
