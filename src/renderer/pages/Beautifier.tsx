@@ -1,5 +1,15 @@
-import { useEffect, useRef } from 'react';
-import { Button, Typography, Select, Checkbox, Form } from 'antd';
+import { useState, useEffect, useRef } from 'react';
+import {
+  message,
+  Button,
+  Typography,
+  Select,
+  Checkbox,
+  Form,
+  Flex,
+  Space,
+  Divider,
+} from 'antd';
 import { basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
@@ -10,6 +20,26 @@ import javascriptTheme from '../shared/codemirror.theme.javascript';
 const Wrapper = styled.div`
   display: flex;
   height: 100vh;
+
+  .editor {
+    position: relative;
+    flex: 1 0 0;
+    width: 0;
+    height: 100%;
+
+    .editor-view {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+
+      .cm-editor {
+        box-sizing: border-box;
+        height: 100%;
+      }
+    }
+  }
 
   .aside {
     display: flex;
@@ -46,17 +76,6 @@ const DEFAULT_BEAUTIFIER_CONFIG = {
   indent_empty_lines: false,
 };
 
-const JavascriptEditor = styled.div`
-  flex: 1 0 0;
-  width: 0;
-  height: 100%;
-
-  .cm-editor {
-    box-sizing: border-box;
-    height: 100%;
-  }
-`;
-
 const indentSizeOptions = [
   { value: '\t_1', label: '制表符缩进' },
   { value: ' _2', label: '缩进2个空格' },
@@ -82,9 +101,66 @@ const wrapLineLengthOptions = [
   { value: '200', label: '超200个字符换行' },
 ];
 
-function EditableFalseEditor() {
+function EditableTrueEditor({ editorView, show }) {
   const editorRef = useRef(null);
-  const editorView = useRef<EditorView>(null);
+
+  useEffect(() => {
+    if (editorRef.current) {
+      const state = EditorState.create({
+        doc: '',
+        extensions: [basicSetup, javascript(), javascriptTheme()],
+      });
+      editorView.current = new EditorView({
+        state,
+        parent: editorRef.current,
+      });
+    }
+
+    return () => {
+      editorView.current?.destroy();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (show && editorView.current) {
+      editorView.current.focus();
+    }
+  }, [show])
+
+  return (
+    <div
+      className="editor-view"
+      style={{ display: show ? 'block' : 'none' }}
+      ref={editorRef}
+    />
+  );
+}
+
+let pressTimer: any = null;
+const LONG_PRESS_DURATION = 500;
+
+function EditableFalseEditor({ editorView, show, onDblclick, onLongPress }) {
+  const editorRef = useRef(null);
+
+  const customDoubleClickHandler = EditorView.domEventHandlers({
+    mousedown: (event, ...args) => {
+      pressTimer = setTimeout(() => {
+        onLongPress?.(event, ...args);
+      }, LONG_PRESS_DURATION);
+    },
+    mouseup: () => {
+      clearTimeout(pressTimer);
+    },
+    mouseleave: () => {
+      clearTimeout(pressTimer);
+    },
+
+    dblclick: (event, ...args) => {
+      onDblclick?.(event, ...args);
+      event.preventDefault();
+      return true;
+    },
+  });
 
   useEffect(() => {
     if (editorRef.current) {
@@ -93,6 +169,7 @@ function EditableFalseEditor() {
         extensions: [
           basicSetup,
           EditorState.readOnly.of(true),
+          customDoubleClickHandler,
           javascript(),
           javascriptTheme(),
         ],
@@ -108,20 +185,21 @@ function EditableFalseEditor() {
     };
   }, []);
 
-  return <JavascriptEditor ref={editorRef} />;
-}
-
-function EditableTrueEditor() {
-  const editorRef = useRef(null);
-  const editorView = useRef<EditorView>(null);
-
-  return <JavascriptEditor ref={editorRef} />;
+  return (
+    <div
+      className="editor-view"
+      style={{ display: show ? 'block' : 'none' }}
+      ref={editorRef}
+    />
+  );
 }
 
 function Beautifier() {
   const [form] = Form.useForm();
-  const editorRef = useRef(null);
+  const [editShow, setEditShow] = useState(true);
   const beautify = useRef<any>(null);
+  const editableTrueEditorView = useRef<EditorView>();
+  const editableFalseEditorView = useRef<EditorView>();
 
   useEffect(() => {
     import('./beautify.min.js')
@@ -136,33 +214,16 @@ function Beautifier() {
     };
   }, []);
 
-  useEffect(() => {
-    if (editorRef.current) {
-      const state = EditorState.create({
-        doc: '',
-        extensions: [
-          basicSetup,
-          EditorState.readOnly.of(true),
-          javascript(),
-          javascriptTheme(),
-        ],
-      });
-      editorView.current = new EditorView({
-        state,
-        parent: editorRef.current,
-      });
-    }
-
-    return () => {
-      editorView.current?.destroy();
-    };
-  }, []);
-
   const onFormat = () => {
-    if (!editorView.current || !beautify.current) return;
+    if (
+      !editableTrueEditorView.current ||
+      !editableFalseEditorView.current ||
+      !beautify.current
+    )
+      return;
 
     const { indent_size, ...rest } = form.getFieldsValue();
-    const doc = editorView.current.state.doc.toString();
+    const doc = editableTrueEditorView.current.state.doc.toString();
 
     const formatted = beautify.current(doc, {
       ...DEFAULT_BEAUTIFIER_CONFIG,
@@ -171,17 +232,34 @@ function Beautifier() {
       ...rest,
     });
 
-    const transaction = editorView.current.state.update({
-      changes: { from: 0, to: doc.length, insert: formatted },
+    const to = editableFalseEditorView.current.state.doc.length;
+    const transaction = editableFalseEditorView.current.state.update({
+      changes: { from: 0, to, insert: formatted },
     });
-    editorView.current.dispatch(transaction);
+    editableFalseEditorView.current.dispatch(transaction);
+    setEditShow(false);
   };
 
   return (
     <Wrapper>
-      <div>
-        <EditableFalseEditor />
-        <EditableTrueEditor />
+      <div className="editor">
+        <EditableTrueEditor
+          editorView={editableTrueEditorView}
+          show={editShow}
+        />
+        <EditableFalseEditor
+          editorView={editableFalseEditorView}
+          show={!editShow}
+          onDblclick={() => {
+            setEditShow(true);
+          }}
+          onLongPress={(_, eidtorView) => {
+            const doc = eidtorView.state.doc.toString();
+            navigator.clipboard.writeText(doc).then(() => {
+              message.success('复制成功！');
+            });
+          }}
+        />
       </div>
       <div className="aside">
         <div className="aside-content">
@@ -213,6 +291,12 @@ function Beautifier() {
             </Form.Item>
           </Form>
         </div>
+        <Flex style={{ marginBottom: 12 }} justify="center">
+          <Space split={<Divider type="vertical" />}>
+            <Typography.Text type="secondary">双击编辑代码</Typography.Text>
+            <Typography.Text type="secondary">长按复制代码</Typography.Text>
+          </Space>
+        </Flex>
         <Button type="primary" block size="large" onClick={onFormat}>
           格式化
         </Button>

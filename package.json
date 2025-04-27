@@ -101,6 +101,7 @@
     }
   },
   "dependencies": {
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
     "@codemirror/lang-javascript": "^6.2.3",
     "@codemirror/language": "^6.11.0",
     "@codemirror/merge": "^6.10.0",
