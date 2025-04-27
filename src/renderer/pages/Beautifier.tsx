@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Button, Typography, Select, Checkbox, Form } from 'antd';
-import { basicSetup, EditorView } from 'codemirror';
+import { basicSetup } from 'codemirror';
+import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
 import { styled } from 'styled-components';
 import javascriptTheme from '../shared/codemirror.theme.javascript';
@@ -80,16 +82,54 @@ const wrapLineLengthOptions = [
   { value: '200', label: '超200个字符换行' },
 ];
 
-function DiffText() {
-  const [form] = Form.useForm();
+function EditableFalseEditor() {
   const editorRef = useRef(null);
-  const viewRef = useRef<EditorView>(null);
-  const beautify = useRef(null);
+  const editorView = useRef<EditorView>(null);
 
   useEffect(() => {
-    import('./beautify.min.js').then((res) => {
-      beautify.current = res.js_beautify;
-    });
+    if (editorRef.current) {
+      const state = EditorState.create({
+        doc: '',
+        extensions: [
+          basicSetup,
+          EditorState.readOnly.of(true),
+          javascript(),
+          javascriptTheme(),
+        ],
+      });
+      editorView.current = new EditorView({
+        state,
+        parent: editorRef.current,
+      });
+    }
+
+    return () => {
+      editorView.current?.destroy();
+    };
+  }, []);
+
+  return <JavascriptEditor ref={editorRef} />;
+}
+
+function EditableTrueEditor() {
+  const editorRef = useRef(null);
+  const editorView = useRef<EditorView>(null);
+
+  return <JavascriptEditor ref={editorRef} />;
+}
+
+function Beautifier() {
+  const [form] = Form.useForm();
+  const editorRef = useRef(null);
+  const beautify = useRef<any>(null);
+
+  useEffect(() => {
+    import('./beautify.min.js')
+      .then((res) => {
+        beautify.current = res.js_beautify;
+        return '';
+      })
+      .catch(() => {});
 
     return () => {
       beautify.current = null;
@@ -98,22 +138,31 @@ function DiffText() {
 
   useEffect(() => {
     if (editorRef.current) {
-      viewRef.current = new EditorView({
-        extensions: [basicSetup, javascript(), javascriptTheme()],
+      const state = EditorState.create({
+        doc: '',
+        extensions: [
+          basicSetup,
+          EditorState.readOnly.of(true),
+          javascript(),
+          javascriptTheme(),
+        ],
+      });
+      editorView.current = new EditorView({
+        state,
         parent: editorRef.current,
       });
     }
 
     return () => {
-      viewRef.current?.destroy();
+      editorView.current?.destroy();
     };
   }, []);
 
   const onFormat = () => {
-    if (!viewRef.current || !beautify.current) return;
+    if (!editorView.current || !beautify.current) return;
 
     const { indent_size, ...rest } = form.getFieldsValue();
-    const doc = viewRef.current.state.doc.toString();
+    const doc = editorView.current.state.doc.toString();
 
     const formatted = beautify.current(doc, {
       ...DEFAULT_BEAUTIFIER_CONFIG,
@@ -122,18 +171,18 @@ function DiffText() {
       ...rest,
     });
 
-    viewRef.current.dispatch({
-      changes: {
-        from: 0,
-        to: viewRef.current.state.doc.length,
-        insert: formatted,
-      },
+    const transaction = editorView.current.state.update({
+      changes: { from: 0, to: doc.length, insert: formatted },
     });
+    editorView.current.dispatch(transaction);
   };
 
   return (
     <Wrapper>
-      <JavascriptEditor ref={editorRef} />
+      <div>
+        <EditableFalseEditor />
+        <EditableTrueEditor />
+      </div>
       <div className="aside">
         <div className="aside-content">
           <Typography.Title level={5}>选项</Typography.Title>
@@ -172,4 +221,4 @@ function DiffText() {
   );
 }
 
-export default DiffText;
+export default Beautifier;
